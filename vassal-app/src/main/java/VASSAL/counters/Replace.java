@@ -103,6 +103,9 @@ public class Replace extends PlaceMarker {
         matchTraits(Decorator.getOutermost(this), marker);
       }
     }
+    if (! (marker instanceof PieceWrapper)) {
+      marker = new PieceWrapper(marker);
+    }
     return marker;
   }
 

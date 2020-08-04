@@ -17,6 +17,7 @@
  */
 package VASSAL.build.module;
 
+import VASSAL.counters.PieceWrapper;
 import java.awt.Point;
 import java.util.HashMap;
 import java.util.Map;
@@ -129,6 +130,12 @@ public class BasicCommandEncoder implements CommandEncoder, Buildable {
           return new Embellishment0(type, inner);
         }
         return e;
+      }
+    });
+    decoratorFactories.put(PieceWrapper.ID, new DecoratorFactory() {
+      @Override
+      public Decorator createDecorator(String type, GamePiece inner) {
+        return new PieceWrapper(type, inner);
       }
     });
     decoratorFactories.put(Embellishment.OLD_ID, new DecoratorFactory() {
@@ -509,8 +516,16 @@ public class BasicCommandEncoder implements CommandEncoder, Buildable {
   public String encode(Command c) {
     SequenceEncoder se = new SequenceEncoder(PARAM_SEPARATOR);
     if (c instanceof AddPiece) {
-      AddPiece a = (AddPiece) c;
-      return ADD + se.append(wrapNull(a.getTarget().getId())).append(a.getTarget().getType()).append(a.getState()).getValue();
+      final AddPiece a = (AddPiece) c;
+      final GamePiece target = a.getTarget();
+      // Strip the Wrapper if the piece has one
+      if (target instanceof PieceWrapper) {
+        final PieceWrapper pw = (PieceWrapper) target;
+        return ADD + se.append(wrapNull(pw.getId())).append(pw.getInner().getType()).append(pw.getInner().getState()).getValue();
+      }
+      else {
+        return ADD + se.append(wrapNull(a.getTarget().getId())).append(a.getTarget().getType()).append(a.getState()).getValue();
+      }
     }
     else if (c instanceof RemovePiece) {
       return REMOVE + ((RemovePiece) c).getId();

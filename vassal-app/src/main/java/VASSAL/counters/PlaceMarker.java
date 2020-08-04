@@ -156,7 +156,7 @@ public class PlaceMarker extends Decorator implements TranslatablePiece {
     final Map m = getMap();
     if (m == null) return null;
 
-    final GamePiece marker = createMarker();
+    GamePiece marker = createWrappedMarker();
     if (marker == null) return null;
 
     Command c = null;
@@ -247,6 +247,25 @@ public class PlaceMarker extends Decorator implements TranslatablePiece {
         KeyBuffer.getBuffer().add(marker);
       }
     }
+  }
+
+  /**
+   * The marker, with prototypes fully expanded
+   * Wrap the marker
+   *
+   * @return
+   */
+  public GamePiece createWrappedMarker() {
+    GamePiece piece = createBaseMarker();
+    if (piece == null) {
+      piece = new PieceWrapper(new BasicPiece());
+      newGpId = getGpId();
+    }
+    else {
+      piece = PieceCloner.getInstance().cloneAndWrapPiece(piece);
+    }
+    piece.setProperty(Properties.PIECE_ID, newGpId);
+    return piece;
   }
 
   /**
