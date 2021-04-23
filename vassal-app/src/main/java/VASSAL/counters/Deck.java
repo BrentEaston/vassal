@@ -17,6 +17,7 @@
  */
 package VASSAL.counters;
 
+import VASSAL.build.module.map.deck.DeckKeyCommand;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
@@ -84,6 +85,18 @@ import VASSAL.tools.ProblemDialog;
 /**
  * A collection of pieces that behaves like a deck, i.e.: Doesn't move.
  * Can't be expanded. Can be shuffled. Can be turned face-up and face-down.
+ *
+ * Decks have 2 modes of behaviour: Version 1 and Version 2. This related to the position and functions
+ * attached to the Deck, not the Cards.
+ *
+ * Version 1: The Deck configuration is saved with the Deck in the save file and takes precedence over the
+ * current setting in the matching DrawPile configuration.
+ * Version 2: The configuration of the defining DrawPile in the module is used to define the behaviour of the
+ * Deck, over-riding and updating any config stored in the save file.
+ *
+ * From Vassal 3.6, all Decks are will automatically use Version 2 behaviour unless a Deck is loaded from a
+ * save game and the matching DrawPile no longer exists in the module. In this case, the behaviour will fall
+ * back to Version 1 and the Deck configuration stored in the Save file will be used.
  */
 public class Deck extends Stack implements PlayerRoster.SideChangeListener {
   public static final String ID = "deck;"; //$NON-NLS-1$
@@ -141,6 +154,11 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
   protected boolean restrictOption;
   protected PropertyExpression restrictExpression = new PropertyExpression();
   protected PropertySource propertySource;
+
+  /**
+   * The {@Link DrawPile} containing the config info for this Deck
+   */
+  protected DrawPile drawPile;
 
   /**
    * Special {@link CommandEncoder} to handle loading/saving Decks from files.
@@ -238,11 +256,6 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
    */
   public void setPropertySource(PropertySource source) {
     propertySource = source;
-    if (globalCommands != null) {
-      for (final DeckGlobalKeyCommand globalCommand : globalCommands) {
-        globalCommand.setPropertySource(propertySource);
-      }
-    }
   }
 
   /**
@@ -285,6 +298,9 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
   /**
    * Sets the list of Deck Global Key Commands for this deck
    * @param commands The list of commands to set (in serialized string form)
+   *
+   * DeckGlobalKeyCommands have been replaced by DeckKeyCommands managed by the DrawPile.
+   * Required for fallback functionality if save games contain orphaned Decks.
    */
   protected void setGlobalCommands(String[] commands) {
     globalCommands = new ArrayList<>(commands.length);
@@ -429,6 +445,29 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
     fireNumCardsProperty();
   }
 
+  /**
+   * Setup this Deck ready for a game session
+   * @param pile Defining DrawPile
+   */
+  public void setup(DrawPile pile) {
+    setDrawPile(pile);
+    addListeners();
+  }
+
+  public void setDrawPile(DrawPile pile) {
+    drawPile = pile;
+  }
+
+  /**
+   * From version 3.6 onwards, all DrawPiles/Decks are auto-converted to Version 2
+   * behaviour UNLESS no matching DrawPile can be found in the module for Deck loaded
+   * from a save game, in which case we fall back to Version 1 behavior.
+   *
+   * @return true if this Deck is a Version 1 Deck
+   */
+  private boolean isV1() {
+    return drawPile == null;
+  }
 
   public void addListeners() {
     if (shuffleListener == null) {
@@ -441,27 +480,41 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
       shuffleListener.setKeyStroke(getShuffleKey());
     }
 
-    if (reshuffleListener == null) {
-      reshuffleListener = new NamedKeyStrokeListener(e -> {
-        gameModule.sendAndLog(sendToDeck());
-        repaintMap();
-      });
 
-      gameModule.addKeyStrokeListener(reshuffleListener);
-      reshuffleListener.setKeyStroke(getReshuffleKey());
+
+    if (isV1()) {
+      // Null DrawPile means orphaned Deck. Fall back to V1 behaviour
+      if (reshuffleListener == null) {
+        reshuffleListener = new NamedKeyStrokeListener(e -> {
+          gameModule.sendAndLog(sendToDeck());
+          repaintMap();
+        });
+
+        gameModule.addKeyStrokeListener(reshuffleListener);
+        reshuffleListener.setKeyStroke(getReshuffleKey());
+      }
+
+      if (reverseListener == null) {
+        reverseListener = new NamedKeyStrokeListener(e -> {
+          reverseDeck();
+        });
+
+        gameModule.addKeyStrokeListener(reverseListener);
+        reverseListener.setKeyStroke(getReverseKey());
+      }
+    }
+    else {
+      for (final DeckKeyCommand dkc : drawPile.getDeckKeyCommands()) {
+        dkc.addKeyStrokeListener();
+      }
     }
 
-    if (reverseListener == null) {
-      reverseListener = new NamedKeyStrokeListener(e -> {
-        gameModule.sendAndLog(reverse());
-        repaintMap();
-      });
-
-      gameModule.addKeyStrokeListener(reverseListener);
-      reverseListener.setKeyStroke(getReverseKey());
-    }
 
     gameModule.addSideChangeListenerToPlayerRoster(this);
+  }
+
+  public void cleanup() {
+    removeListeners();
   }
 
   public void removeListeners() {
@@ -470,14 +523,22 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
       shuffleListener = null;
     }
 
-    if (reshuffleListener != null) {
-      gameModule.removeKeyStrokeListener(reshuffleListener);
-      reshuffleListener = null;
-    }
+    if (isV1()) {
+      // Null DrawPile means orphaned Deck. Fall back to V1 behaviour
+      if (reshuffleListener != null) {
+        gameModule.removeKeyStrokeListener(reshuffleListener);
+        reshuffleListener = null;
+      }
 
-    if (reverseListener != null) {
-      gameModule.removeKeyStrokeListener(reverseListener);
-      reverseListener = null;
+      if (reverseListener != null) {
+        gameModule.removeKeyStrokeListener(reverseListener);
+        reverseListener = null;
+      }
+    }
+    else {
+      for (final DeckKeyCommand dkc : drawPile.getDeckKeyCommands()) {
+        dkc.removeKeyStrokeListener();
+      }
     }
 
     gameModule.removeSideChangeListenerFromPlayerRoster(this);
@@ -1059,17 +1120,27 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
     return t.getChangeCommand().append(c);
   }
 
-  /** Reverse the order of the contents of the Deck */
+  /**
+   * V1 Deck fall-back Reverse behavior for orphaned Decks.
+   */
+  public void reverseDeck() {
+    Command c = reverse();
+    if (Map.isChangeReportingEnabled()) {
+      c = c.append(reportCommand(reverseMsgFormat, Resources.getString("Deck.reverse")));
+    }
+    GameModule.getGameModule().sendAndLog(c);
+    repaintMap();
+  }
+
+  /**
+   * Generate a Command to reverse the order of the contents of the Deck. No reporting
+   */
   public Command reverse() {
     final ArrayList<GamePiece> list = new ArrayList<>();
     for (final Iterator<GamePiece> i = getPiecesReverseIterator(); i.hasNext(); ) {
       list.add(i.next());
     }
-    Command c = setContents(list);
-    if (Map.isChangeReportingEnabled()) {
-      c = c.append(reportCommand(reverseMsgFormat, Resources.getString("Deck.reverse")));
-    }
-    return c;
+    return setContents(list);
   }
 
   public boolean isDrawOutline() {
@@ -1202,107 +1273,108 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
   protected KeyCommand[] getKeyCommands() {
     if (commands == null) {
       final ArrayList<KeyCommand> l = new ArrayList<>();
-      KeyCommand c;
-      if (USE_MENU.equals(shuffleOption)) {
-        c = new KeyCommand(shuffleCommand, getShuffleKey(), this) {
-          private static final long serialVersionUID = 1L;
+      if (isV1()) {
+        KeyCommand c;
+        if (USE_MENU.equals(shuffleOption)) {
+          c = new KeyCommand(shuffleCommand, getShuffleKey(), this) {
+            private static final long serialVersionUID = 1L;
 
-          @Override
-          public void actionPerformed(ActionEvent e) {
-            gameModule.sendAndLog(shuffle());
-            repaintMap();
-          }
-        };
-        l.add(c);
+            @Override
+            public void actionPerformed(ActionEvent e) {
+              gameModule.sendAndLog(shuffle());
+              repaintMap();
+            }
+          };
+          l.add(c);
+        }
+        if (reshuffleCommand.length() > 0) {
+          c = new KeyCommand(reshuffleCommand, getReshuffleKey(), this) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent evt) {
+              gameModule.sendAndLog(sendToDeck());
+              repaintMap();
+            }
+          };
+          l.add(c);
+        }
+        if (USE_MENU.equals(faceDownOption)) {
+          final KeyCommand faceDownAction = new KeyCommand(faceDown ? Resources.getString("Deck.face_up") : Resources.getString("Deck.face_down"), NamedKeyStroke.NULL_KEYSTROKE, this) { //$NON-NLS-1$ //$NON-NLS-2$
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent e) {
+              final Command c = setContentsFaceDown(!faceDown);
+              gameModule.sendAndLog(c);
+              repaintMap();
+            }
+          };
+          l.add(faceDownAction);
+        }
+        if (reversible) {
+          c = new KeyCommand(reverseCommand, NamedKeyStroke.NULL_KEYSTROKE, this) { //$NON-NLS-1$
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent e) {
+              final Command c = reverse();
+              gameModule.sendAndLog(c);
+              repaintMap();
+            }
+          };
+          l.add(c);
+        }
+        if (allowMultipleDraw) {
+          c = new KeyCommand(Resources.getString("Deck.draw_multiple"), NamedKeyStroke.NULL_KEYSTROKE, this) { //$NON-NLS-1$
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent e) {
+              promptForDragCount();
+            }
+          };
+          l.add(c);
+        }
+        if (allowSelectDraw) {
+          c = new KeyCommand(Resources.getString("Deck.draw_specific"), NamedKeyStroke.NULL_KEYSTROKE, this) { //$NON-NLS-1$
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent e) {
+              promptForNextDraw();
+              repaintMap();
+            }
+          };
+          l.add(c);
+        }
+        if (persistable) {
+          c = new KeyCommand(Resources.getString(Resources.SAVE), NamedKeyStroke.NULL_KEYSTROKE, this) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent e) {
+              gameModule.sendAndLog(saveDeck());
+              repaintMap();
+            }
+          };
+          l.add(c);
+          c = new KeyCommand(Resources.getString(Resources.LOAD), NamedKeyStroke.NULL_KEYSTROKE, this) {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public void actionPerformed(ActionEvent e) {
+              gameModule.sendAndLog(loadDeck());
+              repaintMap();
+            }
+          };
+          l.add(c);
+        }
+
+        for (final DeckGlobalKeyCommand cmd : globalCommands) {
+          l.add(cmd.getKeyCommand(this));
+        }
       }
-      if (reshuffleCommand.length() > 0) {
-        c = new KeyCommand(reshuffleCommand, getReshuffleKey(), this) {
-          private static final long serialVersionUID = 1L;
-
-          @Override
-          public void actionPerformed(ActionEvent evt) {
-            gameModule.sendAndLog(sendToDeck());
-            repaintMap();
-          }
-        };
-        l.add(c);
-      }
-      if (USE_MENU.equals(faceDownOption)) {
-        final KeyCommand faceDownAction = new KeyCommand(faceDown ? Resources.getString("Deck.face_up") : Resources.getString("Deck.face_down"), NamedKeyStroke.NULL_KEYSTROKE, this) { //$NON-NLS-1$ //$NON-NLS-2$
-          private static final long serialVersionUID = 1L;
-
-          @Override
-          public void actionPerformed(ActionEvent e) {
-            final Command c = setContentsFaceDown(!faceDown);
-            gameModule.sendAndLog(c);
-            repaintMap();
-          }
-        };
-        l.add(faceDownAction);
-      }
-      if (reversible) {
-        c = new KeyCommand(reverseCommand, NamedKeyStroke.NULL_KEYSTROKE, this) { //$NON-NLS-1$
-          private static final long serialVersionUID = 1L;
-
-          @Override
-          public void actionPerformed(ActionEvent e) {
-            final Command c = reverse();
-            gameModule.sendAndLog(c);
-            repaintMap();
-          }
-        };
-        l.add(c);
-      }
-      if (allowMultipleDraw) {
-        c = new KeyCommand(Resources.getString("Deck.draw_multiple"), NamedKeyStroke.NULL_KEYSTROKE, this) { //$NON-NLS-1$
-          private static final long serialVersionUID = 1L;
-
-          @Override
-          public void actionPerformed(ActionEvent e) {
-            promptForDragCount();
-          }
-        };
-        l.add(c);
-      }
-      if (allowSelectDraw) {
-        c = new KeyCommand(Resources.getString("Deck.draw_specific"), NamedKeyStroke.NULL_KEYSTROKE, this) { //$NON-NLS-1$
-          private static final long serialVersionUID = 1L;
-
-          @Override
-          public void actionPerformed(ActionEvent e) {
-            promptForNextDraw();
-            repaintMap();
-          }
-        };
-        l.add(c);
-      }
-      if (persistable) {
-        c = new KeyCommand(Resources.getString(Resources.SAVE), NamedKeyStroke.NULL_KEYSTROKE, this) {
-          private static final long serialVersionUID = 1L;
-
-          @Override
-          public void actionPerformed(ActionEvent e) {
-            gameModule.sendAndLog(saveDeck());
-            repaintMap();
-          }
-        };
-        l.add(c);
-        c = new KeyCommand(Resources.getString(Resources.LOAD), NamedKeyStroke.NULL_KEYSTROKE, this) {
-          private static final long serialVersionUID = 1L;
-
-          @Override
-          public void actionPerformed(ActionEvent e) {
-            gameModule.sendAndLog(loadDeck());
-            repaintMap();
-          }
-        };
-        l.add(c);
-      }
-
-      for (final DeckGlobalKeyCommand cmd : globalCommands) {
-        l.add(cmd.getKeyCommand(this));
-      }
-
       commands = l.toArray(new KeyCommand[0]);
     }
 
@@ -1435,26 +1507,32 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
   /**
    * Combine the contents of this Deck with the contents of the deck specified
    * by {@link #reshuffleTarget}
+   * V1 fallback behaviour for orphaned Decks.
    */
   public Command sendToDeck() {
     Command c = null;
     nextDraw = null;
     final DrawPile target = DrawPile.findDrawPile(reshuffleTarget);
     if (target != null) {
+      c = sendToDeck(target);
       if ((reshuffleMsgFormat.length() > 0) && Map.isChangeReportingEnabled()) {
-        c = reportCommand(reshuffleMsgFormat, reshuffleCommand);
-        if (c == null) {
-          c = new NullCommand();
-        }
+        c = c.append(reportCommand(reshuffleMsgFormat, reshuffleCommand));
       }
-      else {
-        c = new NullCommand();
-      }
-      // move cards to deck
-      final int cnt = getPieceCount() - 1;
-      for (int i = cnt; i >= 0; i--) {
-        c = c.append(target.addToContents(getPieceAt(i)));
-      }
+    }
+    return c;
+  }
+
+  /**
+   * Generate a Command to move all cards in this Deck to the Deck attached to
+   * the supplied DrawPile
+   * @param targetDeck DrawPile of target Deck. Should have been checked for non-null by caller
+   * @return Command encoding move
+   */
+  public Command sendToDeck(DrawPile targetDeck) {
+    Command c = new NullCommand();
+    final int cnt = getPieceCount() - 1;
+    for (int i = cnt; i >= 0; i--) {
+      c = c.append(targetDeck.addToContents(getPieceAt(i)));
     }
     return c;
   }
@@ -1703,7 +1781,7 @@ public class Deck extends Stack implements PlayerRoster.SideChangeListener {
     return selectSortProperty;
   }
 
-  protected void repaintMap() {
+  public void repaintMap() {
     if (map != null) {
       map.repaint();
     }

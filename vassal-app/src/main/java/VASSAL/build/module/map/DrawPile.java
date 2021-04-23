@@ -17,17 +17,6 @@
  */
 package VASSAL.build.module.map;
 
-import java.awt.Color;
-import java.awt.Dimension;
-import java.awt.Point;
-import java.awt.Rectangle;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-
-import javax.swing.JPopupMenu;
-
 import VASSAL.build.AbstractFolder;
 import VASSAL.build.AutoConfigurable;
 import VASSAL.build.Buildable;
@@ -37,6 +26,12 @@ import VASSAL.build.module.Map;
 import VASSAL.build.module.documentation.HelpFile;
 import VASSAL.build.module.folder.DeckSubFolder;
 import VASSAL.build.module.map.boardPicker.Board;
+import VASSAL.build.module.map.deck.DeckDrawMultipleCommand;
+import VASSAL.build.module.map.deck.DeckGKCommand;
+import VASSAL.build.module.map.deck.DeckKeyCommand;
+import VASSAL.build.module.map.deck.DeckReverseCommand;
+import VASSAL.build.module.map.deck.DeckSendCommand;
+import VASSAL.build.module.map.deck.DeckSortCommand;
 import VASSAL.build.module.properties.PropertyNameSource;
 import VASSAL.build.module.properties.PropertySource;
 import VASSAL.build.widget.CardSlot;
@@ -60,11 +55,25 @@ import VASSAL.i18n.TranslatableConfigurerFactory;
 import VASSAL.tools.NamedKeyStroke;
 import VASSAL.tools.UniqueIdManager;
 
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.Point;
+import java.awt.Rectangle;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+import javax.swing.JPopupMenu;
+
+import org.w3c.dom.Element;
+
 public class DrawPile extends SetupStack implements PropertySource, PropertyNameSource {
   protected Deck dummy = new Deck(GameModule.getGameModule()); // Used for storing type information
   protected boolean reshufflable;
   protected Deck myDeck;
   protected PropertySource source;
+  protected int version = 1;
 
   private final VisibilityCondition colorVisibleCondition = () -> dummy.isDrawOutline();
 
@@ -86,12 +95,22 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
   protected static final UniqueIdManager idMgr = new UniqueIdManager("Deck"); //NON-NLS
 
+  /**
+   * List of all DeckKeyCommands that are children of the Deck, including
+   * all levels of sub-folders.
+   */
+  private final List<DeckKeyCommand> deckKeyCommands = new ArrayList<>();
+
+  private boolean isV2() {
+    return version > 1;
+  }
+
   @Override
   public void addTo(Buildable parent) {
     super.addTo(parent);
 
     if (parent instanceof AbstractFolder) {
-      parent = ((AbstractFolder)parent).getNonFolderAncestor();
+      parent = ((AbstractFolder) parent).getNonFolderAncestor();
     }
 
     idMgr.add(this);
@@ -109,17 +128,41 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
   /**
    * Decks can contain child Global Key Commands that only apply
    * to cards in the Deck. Pass these to the dummy Deck component
+   * @deprecated DeckGlobalKeyCommands have been replaced by DeckKeyCommands
    */
+  @Deprecated(since = "2021-04-22")
   public void addGlobalKeyCommand(DeckGlobalKeyCommand globalCommand) {
     dummy.addGlobalKeyCommand(globalCommand);
   }
 
+  @Deprecated(since = "2021-04-22")
   public void removeGlobalKeyCommand(DeckGlobalKeyCommand globalCommand) {
     dummy.removeGlobalKeyCommand(globalCommand);
   }
 
   /**
+   * Called during component add to register a child DeckKeyCommand
+   * @param command Child DeckKeyCommand
+   */
+  public void addDeckKeyCommand(DeckKeyCommand command) {
+    deckKeyCommands.add(command);
+  }
+
+  /**
+   * Called during component removal remove a child DeckKeyCommand
+   * @param command Child DeckKeyCommand
+   */
+  public void removeDeckKeyCommand(DeckKeyCommand command) {
+    deckKeyCommands.remove(command);
+  }
+
+  public List<DeckKeyCommand> getDeckKeyCommands() {
+    return deckKeyCommands;
+  }
+
+  /**
    * Return the DrawPile instance with the matching id or name
+   *
    * @param id the Id or ConfigureName of the target DrawPile
    * @return the matching {@link DrawPile}, or null if none found
    * @see DrawPile#getId
@@ -170,18 +213,19 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
   public static final String COMMAND_NAME = "commandName"; //NON-NLS
   public static final String DECK_NAME = "deckName"; //NON-NLS
+  public static final String VERSION = "version";
 
   public static class Prompt extends TranslatableStringEnum {
     @Override
     public String[] getValidValues(AutoConfigurable target) {
-      return new String[]{ ALWAYS, NEVER, USE_MENU };
+      return new String[] {ALWAYS, NEVER, USE_MENU};
     }
 
     @Override
     public String[] getI18nKeys(AutoConfigurable target) {
-      return new String[] { "Editor.always",
-                            "Editor.never",
-                            "Editor.DrawPile.use_menu"
+      return new String[] {"Editor.always",
+        "Editor.never",
+        "Editor.DrawPile.use_menu"
       };
     }
   }
@@ -195,6 +239,7 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
     /**
      * For this one we need to use pre-translated display names.
+     *
      * @return true
      */
     @Override
@@ -210,7 +255,7 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
       final ArrayList<String> l = new ArrayList<>();
       l.add(NONE);
       for (final GameComponent g :
-           GameModule.getGameModule().getGameState().getGameComponents()) {
+        GameModule.getGameModule().getGameState().getGameComponents()) {
         if (g instanceof Map) {
           for (final DrawPile dp : ((Map) g).getComponentsOf(DrawPile.class)) {
             if (dp.getConfigureName() != null)
@@ -243,49 +288,80 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
   @Override
   public String[] getAttributeNames() {
-    return new String[]{
-      NAME,
-      OWNING_BOARD,
-      X_POSITION,
-      Y_POSITION,
-      WIDTH,
-      HEIGHT,
-      ALLOW_MULTIPLE,
-      ALLOW_SELECT,
-      SELECT_DISPLAY_PROPERTY,
-      SELECT_SORT_PROPERTY,
-      FACE_DOWN,
-      DRAW_FACE_UP,
-      FACE_DOWN_REPORT_FORMAT,
-      SHUFFLE,                        // These commands match "Reshuffle" in the visible menus
-      SHUFFLE_COMMAND,
-      SHUFFLE_REPORT_FORMAT,
-      SHUFFLE_HOTKEY,
-      REVERSIBLE,
-      REVERSE_COMMAND,
-      REVERSE_REPORT_FORMAT,
-      REVERSE_HOTKEY,
-      DRAW,
-      COLOR,
-      HOTKEY_ON_EMPTY,
-      EMPTY_HOTKEY,
-      RESHUFFLABLE,                  // These commands match "Send to another deck" in the visible menus
-      RESHUFFLE_COMMAND,
-      RESHUFFLE_MESSAGE,
-      RESHUFFLE_HOTKEY,
-      RESHUFFLE_TARGET,
-      CAN_SAVE,
-      MAXSTACK,
-      EXPRESSIONCOUNTING,
-      COUNTEXPRESSIONS,
-      RESTRICT_OPTION,
-      RESTRICT_EXPRESSION
-    };
+    return isV2() ?
+      new String[] {
+        NAME,
+        OWNING_BOARD,
+        X_POSITION,
+        Y_POSITION,
+        WIDTH,
+        HEIGHT,
+        ALLOW_MULTIPLE,
+        ALLOW_SELECT,
+        SELECT_DISPLAY_PROPERTY,
+        SELECT_SORT_PROPERTY,
+        FACE_DOWN,
+        DRAW_FACE_UP,
+        FACE_DOWN_REPORT_FORMAT,
+        SHUFFLE,                        // These commands match "Reshuffle" in the visible menus
+        SHUFFLE_COMMAND,
+        SHUFFLE_REPORT_FORMAT,
+        SHUFFLE_HOTKEY,
+        DRAW,
+        COLOR,
+        HOTKEY_ON_EMPTY,
+        EMPTY_HOTKEY,
+        CAN_SAVE,
+        MAXSTACK,
+        EXPRESSIONCOUNTING,
+        COUNTEXPRESSIONS,
+        RESTRICT_OPTION,
+        RESTRICT_EXPRESSION
+      }
+      : new String[] {
+        NAME,
+        OWNING_BOARD,
+        X_POSITION,
+        Y_POSITION,
+        WIDTH,
+        HEIGHT,
+        ALLOW_MULTIPLE,
+        ALLOW_SELECT,
+        SELECT_DISPLAY_PROPERTY,
+        SELECT_SORT_PROPERTY,
+        FACE_DOWN,
+        DRAW_FACE_UP,
+        FACE_DOWN_REPORT_FORMAT,
+        SHUFFLE,                        // These commands match "Reshuffle" in the visible menus
+        SHUFFLE_COMMAND,
+        SHUFFLE_REPORT_FORMAT,
+        SHUFFLE_HOTKEY,
+        REVERSIBLE,
+        REVERSE_COMMAND,
+        REVERSE_REPORT_FORMAT,
+        REVERSE_HOTKEY,
+        DRAW,
+        COLOR,
+        HOTKEY_ON_EMPTY,
+        EMPTY_HOTKEY,
+        RESHUFFLABLE,                  // These commands match "Send to another deck" in the visible menus
+        RESHUFFLE_COMMAND,
+        RESHUFFLE_MESSAGE,
+        RESHUFFLE_HOTKEY,
+        RESHUFFLE_TARGET,
+        CAN_SAVE,
+        MAXSTACK,
+        EXPRESSIONCOUNTING,
+        COUNTEXPRESSIONS,
+        RESTRICT_OPTION,
+        RESTRICT_EXPRESSION
+      };
   }
 
   @Override
   public String[] getAttributeDescriptions() {
-    return new String[]{
+    return isV2() ?
+      new String[] {
         Resources.getString(Resources.NAME_LABEL),
         Resources.getString("Editor.DrawPile.owning_board"), //$NON-NLS-1$
         Resources.getString("Editor.x_position"), //$NON-NLS-1$
@@ -303,75 +379,134 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
         Resources.getString("Editor.DrawPile.reshuffle_text"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.reshuffle_report"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.reshuffle_key"), //$NON-NLS-1$
-        Resources.getString("Editor.DrawPile.reverse"), //$NON-NLS-1$
-        Resources.getString("Editor.DrawPile.reverse_text"), //$NON-NLS-1$
-        Resources.getString("Editor.DrawPile.reverse_report"), //$NON-NLS-1$
-        Resources.getString("Editor.DrawPile.reverse_key"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.outline"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.color"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.empty_key"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.empty_keyfrom"), //$NON-NLS-1$
-        Resources.getString("Editor.DrawPile.send_deck"), //$NON-NLS-1$        // Internally these match "RESHUFFLE"
-        Resources.getString("Editor.DrawPile.send_text"), //$NON-NLS-1$
-        Resources.getString("Editor.DrawPile.send_report"), //$NON-NLS-1$
-        Resources.getString("Editor.DrawPile.send_key"), //$NON-NLS-1$
-        Resources.getString("Editor.DrawPile.send_deck_name"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.saved"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.maxdisplay"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.perform_express"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.count_express"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.restrict_drag"), //$NON-NLS-1$
         Resources.getString("Editor.DrawPile.match_express"), //$NON-NLS-1$
-    };
+      }
+      : new String[] {
+      Resources.getString(Resources.NAME_LABEL),
+      Resources.getString("Editor.DrawPile.owning_board"), //$NON-NLS-1$
+      Resources.getString("Editor.x_position"), //$NON-NLS-1$
+      Resources.getString("Editor.y_position"), //$NON-NLS-1$
+      Resources.getString("Editor.width"), //$NON-NLS-1$
+      Resources.getString("Editor.height"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.multi_draw"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.specific_draw"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.list_cards"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.sort_cards"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.facedown"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.faceup"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.facedown_report"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.reshuffle"), //$NON-NLS-1$        // Internally these match "SHUFFLE"
+      Resources.getString("Editor.DrawPile.reshuffle_text"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.reshuffle_report"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.reshuffle_key"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.reverse"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.reverse_text"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.reverse_report"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.reverse_key"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.outline"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.color"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.empty_key"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.empty_keyfrom"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.send_deck"), //$NON-NLS-1$        // Internally these match "RESHUFFLE"
+      Resources.getString("Editor.DrawPile.send_text"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.send_report"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.send_key"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.send_deck_name"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.saved"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.maxdisplay"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.perform_express"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.count_express"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.restrict_drag"), //$NON-NLS-1$
+      Resources.getString("Editor.DrawPile.match_express"), //$NON-NLS-1$
+      };
   }
 
   @Override
   public Class<?>[] getAttributeTypes() {
-    return new Class<?>[]{
-      String.class, // NAME
-      OwningBoardPrompt.class, // OWNING_BOARD
-      Integer.class, // X_POSITION
-      Integer.class, // Y_POSITION
-      Integer.class, // WIDTH
-      Integer.class, // HEIGHT
-      Boolean.class, // ALLOW_MULTIPLE
-      Boolean.class, // ALLOW_SELECT
-      PiecePropertyConfig.class, // SELECT_DISPLAY_PROPERTY
-      String.class, // SELECT_SORT_PROPERTY
-      Prompt.class, // FACE_DOWN
-      Boolean.class, // DRAW_FACE_UP
-      FormattedStringConfig.class, // FACE_DOWN_REPORT_FORMAT
-      Prompt.class, // SHUFFLE                                    // These map to "re-shuffle"
-      String.class, // SHUFFLE_COMMAND
-      FormattedStringConfig.class, // SHUFFLE_REPORT_FORMAT
-      NamedKeyStroke.class, // SHUFFLE_HOTKEY
-      Boolean.class, // REVERSIBLE
-      String.class, // REVERSE_COMMAND
-      FormattedStringConfig.class, // REVERSE_REPORT_FORMAT
-      NamedKeyStroke.class, // REVERSE_HOTKEY
-      Boolean.class, // DRAW
-      Color.class, // COLOR
-      Boolean.class, // HOTKEY_ON_EMPTY
-      NamedKeyStroke.class, // EMPTY_HOTKEY
-      Boolean.class, // RESHUFFLABLE
-      String.class, // RESHUFFLE_COMMAND                  // These map to "send to an other deck"
-      FormattedStringConfig.class, // RESHUFFLE_MESSAGE
-      NamedKeyStroke.class, // RESHUFFLE_HOTKEY
-      AssignedDeckPrompt.class, // RESHUFFLE_TARGET
-      Boolean.class, // CAN_SAVE
-      Integer.class, // MAXSTACK
-      Boolean.class, // EXPRESSIONCOUNTING
-      String[].class, // COUNTEXPRESSIONS
-      Boolean.class, // RESTRICT_OPTION
-      PropertyExpression.class //RESTRICT_EXPRESSION
-    };
+    return isV2() ?
+      new Class<?>[] {
+        String.class, // NAME
+        OwningBoardPrompt.class, // OWNING_BOARD
+        Integer.class, // X_POSITION
+        Integer.class, // Y_POSITION
+        Integer.class, // WIDTH
+        Integer.class, // HEIGHT
+        Boolean.class, // ALLOW_MULTIPLE
+        Boolean.class, // ALLOW_SELECT
+        PiecePropertyConfig.class, // SELECT_DISPLAY_PROPERTY
+        String.class, // SELECT_SORT_PROPERTY
+        Prompt.class, // FACE_DOWN
+        Boolean.class, // DRAW_FACE_UP
+        FormattedStringConfig.class, // FACE_DOWN_REPORT_FORMAT
+        Prompt.class, // SHUFFLE                                    // These map to "re-shuffle"
+        String.class, // SHUFFLE_COMMAND
+        FormattedStringConfig.class, // SHUFFLE_REPORT_FORMAT
+        NamedKeyStroke.class, // SHUFFLE_HOTKEY
+        Boolean.class, // DRAW
+        Color.class, // COLOR
+        Boolean.class, // HOTKEY_ON_EMPTY
+        NamedKeyStroke.class, // EMPTY_HOTKEY
+        Boolean.class, // CAN_SAVE
+        Integer.class, // MAXSTACK
+        Boolean.class, // EXPRESSIONCOUNTING
+        String[].class, // COUNTEXPRESSIONS
+        Boolean.class, // RESTRICT_OPTION
+        PropertyExpression.class //RESTRICT_EXPRESSION
+      }
+      : new Class<?>[] {
+        String.class, // NAME
+        OwningBoardPrompt.class, // OWNING_BOARD
+        Integer.class, // X_POSITION
+        Integer.class, // Y_POSITION
+        Integer.class, // WIDTH
+        Integer.class, // HEIGHT
+        Boolean.class, // ALLOW_MULTIPLE
+        Boolean.class, // ALLOW_SELECT
+        PiecePropertyConfig.class, // SELECT_DISPLAY_PROPERTY
+        String.class, // SELECT_SORT_PROPERTY
+        Prompt.class, // FACE_DOWN
+        Boolean.class, // DRAW_FACE_UP
+        FormattedStringConfig.class, // FACE_DOWN_REPORT_FORMAT
+        Prompt.class, // SHUFFLE                                    // These map to "re-shuffle"
+        String.class, // SHUFFLE_COMMAND
+        FormattedStringConfig.class, // SHUFFLE_REPORT_FORMAT
+        NamedKeyStroke.class, // SHUFFLE_HOTKEY
+        Boolean.class, // REVERSIBLE
+        String.class, // REVERSE_COMMAND
+        FormattedStringConfig.class, // REVERSE_REPORT_FORMAT
+        NamedKeyStroke.class, // REVERSE_HOTKEY
+        Boolean.class, // DRAW
+        Color.class, // COLOR
+        Boolean.class, // HOTKEY_ON_EMPTY
+        NamedKeyStroke.class, // EMPTY_HOTKEY
+        Boolean.class, // RESHUFFLABLE
+        String.class, // RESHUFFLE_COMMAND                  // These map to "send to an other deck"
+        FormattedStringConfig.class, // RESHUFFLE_MESSAGE
+        NamedKeyStroke.class, // RESHUFFLE_HOTKEY
+        AssignedDeckPrompt.class, // RESHUFFLE_TARGET
+        Boolean.class, // CAN_SAVE
+        Integer.class, // MAXSTACK
+        Boolean.class, // EXPRESSIONCOUNTING
+        String[].class, // COUNTEXPRESSIONS
+        Boolean.class, // RESTRICT_OPTION
+        PropertyExpression.class //RESTRICT_EXPRESSION
+      };
   }
 
   public static class FormattedStringConfig implements TranslatableConfigurerFactory {
     @Override
     public Configurer getConfigurer(AutoConfigurable c, String key, String name) {
-      return new PlayerIdFormattedStringConfigurer(key, name, new String[]{DECK_NAME,
-                                                                           COMMAND_NAME});
+      return new PlayerIdFormattedStringConfigurer(key, name, new String[] {DECK_NAME,
+        COMMAND_NAME});
     }
   }
 
@@ -438,10 +573,10 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
       // reshufflable unreliable in modules created prior to 3.2.13.
       return String.valueOf(
         reshufflable ||
-        dummy.getReshuffleCommand().length() > 0 ||
-        dummy.getReshuffleTarget().length() > 0 ||
-        dummy.getReshuffleMsgFormat().length() > 0 ||
-        dummy.getReshuffleKey() != NamedKeyStroke.NULL_KEYSTROKE
+          dummy.getReshuffleCommand().length() > 0 ||
+          dummy.getReshuffleTarget().length() > 0 ||
+          dummy.getReshuffleMsgFormat().length() > 0 ||
+          dummy.getReshuffleKey() != NamedKeyStroke.NULL_KEYSTROKE
       );
     }
     else if (RESHUFFLE_COMMAND.equals(key)) {
@@ -491,6 +626,9 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
     }
     else if (RESTRICT_EXPRESSION.equals(key)) {
       return dummy.getRestrictExpression().getExpression();
+    }
+    else if (VERSION.equals(key)) {
+      return String.valueOf(version);
     }
     else {
       return super.getAttributeValueString(key);
@@ -561,10 +699,10 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
       }
     }
     else if (SELECT_DISPLAY_PROPERTY.equals(key)) {
-      dummy.setSelectDisplayProperty((String)value);
+      dummy.setSelectDisplayProperty((String) value);
     }
     else if (SELECT_SORT_PROPERTY.equals(key)) {
-      dummy.setSelectSortProperty((String)value);
+      dummy.setSelectSortProperty((String) value);
     }
     else if (DRAW.equals(key)) {
       if (value instanceof Boolean) {
@@ -683,6 +821,12 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
       }
       dummy.setRestrictExpression((PropertyExpression) value);
     }
+    else if (VERSION.equals(key)) {
+      if (value instanceof String) {
+        value = Integer.valueOf((String) value);
+      }
+      version = (Integer) value;
+    }
     else {
       super.setAttribute(key, value);
     }
@@ -724,7 +868,15 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
   @Override
   public Class<?>[] getAllowableConfigureComponents() {
-    return new Class<?>[]{ DeckSubFolder.class, CardSlot.class, DeckGlobalKeyCommand.class };
+    return new Class<?>[] {
+      DeckSubFolder.class,
+      CardSlot.class,
+      DeckGKCommand.class,
+      DeckDrawMultipleCommand.class,
+      DeckReverseCommand.class,
+      DeckSendCommand.class,
+      DeckSortCommand.class
+    };
   }
 
   public Point getPosition() {
@@ -766,6 +918,7 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
   public void setDeck(Deck deck) {
     myDeck = deck;
+    myDeck.setDrawPile(this);
   }
 
   public Deck getDeck() {
@@ -835,6 +988,7 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
   /**
    * {@link VASSAL.search.SearchTarget}
+   *
    * @return a list of the Configurables string/expression fields if any (for search)
    */
   @Override
@@ -855,6 +1009,7 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
   /**
    * {@link VASSAL.search.SearchTarget}
+   *
    * @return a list of any Message Format strings referenced in the Configurable, if any (for search)
    */
   @Override
@@ -869,19 +1024,21 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
 
   /**
    * {@link VASSAL.search.SearchTarget}
+   *
    * @return a list of any Property Names referenced in the Configurable, if any (for search)
    */
   @Override
   public List<String> getPropertyList() {
     if (dummy != null) {
       return List.of(dummy.getSelectDisplayProperty(),
-                     dummy.getSelectSortProperty());
+        dummy.getSelectSortProperty());
     }
     return Collections.emptyList();
   }
 
   /**
    * {@link VASSAL.search.SearchTarget}
+   *
    * @return a list of any Menu/Button/Tooltip Text strings referenced in the Configurable, if any (for search)
    */
   @Override
@@ -909,16 +1066,32 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
     super.setup(gameStarting);
     if (myDeck != null) {
       if (gameStarting) {
-        myDeck.addListeners();
+        /*
+         * This is the first time we know for sure the Build is complete and we know what
+         * our parent property source is (should be the Map we belong to). Tell all the
+         * child DeckKeyCommands what the source is, the DGKC's will need it.
+         */
+        for (final DeckKeyCommand dkc : deckKeyCommands) {
+          dkc.setPropertySource(source);
+        }
+        /*
+         * Final pre-session Deck initialisation.
+         * myDeck is not set correctly until super.setup(true) has completed
+         */
+        myDeck.setup(this);
       }
       else {
-        myDeck.removeListeners();
+        /*
+         * Post-session clean-up
+         */
+        myDeck.cleanup();
       }
     }
   }
 
   /**
    * {@link VASSAL.search.SearchTarget}
+   *
    * @return a list of any Named KeyStrokes referenced in the Configurable, if any (for search)
    */
   @Override
@@ -930,4 +1103,69 @@ public class DrawPile extends SetupStack implements PropertySource, PropertyName
       return Collections.emptyList();
     }
   }
+
+  // Convert V1 DrawPiles to V2 after build if
+  //  a) Editor is running
+  //  b) The DrawPile has not already been converted
+  //  c) The module was last saved under 3.5 or earlier
+  // FIXME
+  //  d) This Deck does not belong to the module if an Extension is being edited.
+  @Override
+  public void build(Element e) {
+    super.build(e);
+    final GameModule gm = GameModule.getGameModule();
+    if (!gm.isEditorOpen() || version > 1) {
+      return;
+    }
+
+    // Create a SubFolder in the first sub-position (above any Cards) to hold the Key Commands
+    final DeckSubFolder keyFolder = new DeckSubFolder();
+    keyFolder.setAttribute(AbstractFolder.NAME, Resources.getString("Editor.DrawPile.key_commands"));
+    keyFolder.setAttribute(AbstractFolder.DESCRIPTION, Resources.getString("Editor.DrawPile.key_commands"));
+    keyFolder.addTo(this);
+    add(keyFolder, 0);
+
+    // Move an Existing Send to Another Deck option to a Key Command in the folder
+    if (dummy.isShuffle()) {
+      final DeckSendCommand send = new DeckSendCommand(Resources.getString("Editor.Deck.send"), dummy.getReshuffleCommand(), dummy.getReshuffleMsgFormat(), dummy.getReshuffleKey());
+      send.addTo(keyFolder);
+      keyFolder.add(send);
+    }
+
+    // Move an Existing Reversible option to a Key Command in the folder
+    if (dummy.isReversible()) {
+      final DeckReverseCommand reverse = new DeckReverseCommand(Resources.getString("Editor.Deck.reverse"), dummy.getReverseCommand(), dummy.getReverseMsgFormat(), dummy.getReverseKey());
+      reverse.addTo(keyFolder);
+      keyFolder.add(reverse);
+    }
+    // Move an Existing Draw Multiple option to a Key Command in the folder
+    if (dummy.isAllowMultipleDraw()) {
+      final DeckDrawMultipleCommand drawMultiple = new DeckDrawMultipleCommand(Resources.getString("Editor.Deck.draw_multiple"), Resources.getString("Deck.draw_multiple"));
+      drawMultiple.addTo(keyFolder);
+      keyFolder.add(drawMultiple);
+    }
+
+    // Move an Existing Draw Specific option to a Key Command in the folder
+    if (dummy.isAllowSelectDraw()) {
+      // TODO
+    }
+
+    // Move an Existing Save/Load option to a Key Command in the folder
+    if (dummy.isPersistable()) {
+      // TODO
+    }
+
+    // Move any existing DGKC's to the folder
+    for (final DeckGlobalKeyCommand dkgc : getComponentsOf(DeckGlobalKeyCommand.class)) {
+      dkgc.removeFrom(this);
+      remove(dkgc);
+      final DeckGKCommand gkc = new DeckGKCommand(dkgc);
+      gkc.addTo(keyFolder);
+      keyFolder.add(gkc);
+    }
+
+    // Set the version to 2
+    version = 2;
+  }
 }
+

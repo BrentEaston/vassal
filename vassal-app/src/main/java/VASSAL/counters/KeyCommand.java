@@ -83,6 +83,10 @@ public class KeyCommand extends AbstractAction {
     setEnabled(enabled);
   }
 
+  public KeyCommand(String name, KeyStroke key) {
+    this (name, key, null);
+  }
+
   public KeyCommand(KeyCommand command) {
     this(command.name, command.stroke, command.target, command.i18nPiece, command.isEnabled());
   }

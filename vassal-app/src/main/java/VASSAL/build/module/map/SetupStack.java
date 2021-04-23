@@ -360,6 +360,11 @@ public class SetupStack extends AbstractConfigurable implements GameComponent, U
     updateConfigureButton();
   }
 
+  public void add(Buildable child, int position) {
+    super.add(child, position);
+    updateConfigureButton();
+  }
+
   public Map getMap() {
     return (Map)getNonFolderAncestor();
   }

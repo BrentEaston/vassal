@@ -20,11 +20,23 @@ package VASSAL.build.module.folder;
 
 import VASSAL.build.AbstractFolder;
 import VASSAL.build.module.map.DeckGlobalKeyCommand;
+import VASSAL.build.module.map.deck.DeckDrawMultipleCommand;
+import VASSAL.build.module.map.deck.DeckGKCommand;
+import VASSAL.build.module.map.deck.DeckReverseCommand;
+import VASSAL.build.module.map.deck.DeckSendCommand;
+import VASSAL.build.module.map.deck.DeckSortCommand;
 import VASSAL.build.widget.CardSlot;
 
 public class DeckSubFolder extends AbstractFolder {
   @Override
   public Class<?>[] getAllowableConfigureComponents() {
-    return new Class<?>[] { this.getClass(), CardSlot.class, DeckGlobalKeyCommand.class };
+    return new Class<?>[] {
+      this.getClass(),
+      CardSlot.class,
+      DeckGKCommand.class,
+      DeckDrawMultipleCommand.class,
+      DeckReverseCommand.class,
+      DeckSendCommand.class,
+      DeckSortCommand.class };
   }
 }

@@ -47,6 +47,11 @@ public class DeckSelectionConfigurer extends FormattedExpressionConfigurer {
     select.addActionListener(e -> showPopup());
   }
 
+  public DeckSelectionConfigurer(String s, GamePiece p, String deckName) {
+    this(s, p);
+    setValue(deckName);
+  }
+
   public void showPopup() {
     final JPopupMenu mapMenu = new JPopupMenu();
     for (final Map m: GameModule.getGameModule().getAllDescendantComponentsOf(Map.class)) {

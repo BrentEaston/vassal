@@ -172,6 +172,13 @@ public abstract class AbstractConfigurable extends AbstractBuildable implements 
     }
   }
 
+  public void add(Buildable b, int position) {
+    super.add(b, position);
+    if (b instanceof Translatable) {
+      ((Translatable) b).getI18nData().setOwningComponent(this);
+    }
+  }
+
   @Override
   public void addPropertyChangeListener(PropertyChangeListener l) {
     if (changeSupport == null) {
