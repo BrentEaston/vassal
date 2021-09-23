@@ -25,7 +25,7 @@
             <dependency>
                 <groupId>org.junit</groupId>
                 <artifactId>junit-bom</artifactId>
-                <version>5.7.2</version>
+                <version>5.8.1</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -36,7 +36,7 @@
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <version>1.2.5</version>
+            <version>1.2.6</version>
         </dependency>
         <dependency>
             <groupId>com.miglayout</groupId>
@@ -191,7 +191,7 @@
         <dependency>
             <groupId>net.bytebuddy</groupId>
             <artifactId>byte-buddy</artifactId>
-            <version>1.11.15</version>
+            <version>1.11.18</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -310,6 +310,13 @@
                   </goals>
                 </execution>
               </executions>
+              <dependencies>
+                <dependency>
+                  <groupId>org.ow2.asm</groupId>
+                  <artifactId>asm</artifactId>
+                  <version>9.2</version>
+                </dependency>
+              </dependencies>
             </plugin>
             <plugin>
                 <artifactId>maven-jar-plugin</artifactId>
