@@ -152,10 +152,6 @@ public class StructuredFontConfigurer extends FontConfigurer {
     this.limitedSizes = limitedSizes;
   }
 
-  public void setSizeEditable(boolean editable) {
-    fontSizeConfig.setEditable(editable);
-  }
-
   @Override
   public void setValue(String s) {
     setValue(decode(s));
@@ -321,7 +317,6 @@ public class StructuredFontConfigurer extends FontConfigurer {
   private void updateValue(String family, int style, int size) {
     setValue(new Font(family, style, size));
     viewer.setFont((Font) getValue());
-    viewer.revalidate();
     SwingUtils.repack(panel);
   }
 

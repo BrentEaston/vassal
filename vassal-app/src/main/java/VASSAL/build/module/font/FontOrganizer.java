@@ -72,8 +72,8 @@ public class FontOrganizer extends AbstractConfigurable {
   public static final String VASSAL_MONOSPACED_FONT = "VassalMono";
   public static final String VASSAL_CONDENSED_FONT = "VassalCondensed";
   public static final String VASSAL_EDITOR_FONT = "VassalEditor";
-  public static final String VASSAL_DEFAULT_FONT = VASSAL_SERIF_FONT;       // Improvement on good old Dialog
 
+  public static final String VASSAL_DEFAULT_FONT = VASSAL_SANSERIF_FONT;
   public static final String FONTS = "Fonts";
   public static final String FONTS_FOLDER = "fonts";                        // Folder in Vengine containing font files
   public static final String FONTS_CONFIG = "fonts.yml";                    // Contains List of font files in FONTS_FOLDER
@@ -329,14 +329,7 @@ public class FontOrganizer extends AbstractConfigurable {
         }
         else {
           final FontFamily family = organizer.configuredFonts.getFamily(familyName);
-          final int styleCount = family.getFiles().size();
-          parentNode = new MyTreeNode(
-            familyName,
-            family.getDesc(),
-            family.getBasefont(),
-            Resources.getString(
-              styleCount == 1 ? "Editor.FontOrganizer.vassal" : "Editor.FontOrganizer.vassal_plural",
-              styleCount));
+          parentNode = new MyTreeNode(familyName, family.getDesc(), family.getBasefont(), Resources.getString("Editor.FontOrganizer.vassal", family.getFiles().size()));
           rootNode.add(parentNode);
           lastFamilyNode = parentNode;
           families.add(familyName);
@@ -352,20 +345,13 @@ public class FontOrganizer extends AbstractConfigurable {
         final String familyName = font.getFontFamily();
 
         final FontFamily family = moduleFamilies.computeIfAbsent(familyName, k -> {
-          return new FontFamily(familyName, familyName, familyName);
+          return new FontFamily(familyName, "description", "source");
         });
         family.add(new FontFile(font));
       }
 
       moduleFamilies.values().forEach(k -> {
-        final int styleCount = k.getFiles().size();
-        final MyTreeNode parentNode = new MyTreeNode(
-          k.getName(),
-          k.getDesc(),
-          k.getBasefont(),
-          Resources.getString(
-            styleCount == 1 ? "Editor.FontOrganizer.vassal" : "Editor.FontOrganizer.vassal_plural",
-            styleCount));
+        final MyTreeNode parentNode = new MyTreeNode(k.getName(), k.getDesc(), k.getBasefont(), Resources.getString("Editor.FontOrganizer.module", k.getFiles().size()));
         k.getFiles().forEach(font -> parentNode.add(new MyTreeNode(font.getFont())));
         rootNode.add(parentNode);
       });
