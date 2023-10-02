@@ -175,4 +175,10 @@ public class FontManager extends AbstractConfigurable {
   public boolean isMandatory() {
     return true;
   }
+
+  public static String[] getAllowableFonts() {
+    // Do not cache the Allowable fonts, new ones may be added to the module
+    ALLOWABLE_FONTS = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames();
+    return ALLOWABLE_FONTS;
+  }
 }
