@@ -5,6 +5,10 @@
 
 3.7.16 - ???
 
+* 13862: Don't crash if client disconnects just before trying to send
+    a message
+* 13882: Reset map on a piece that has lost its map during undo
+* 13830: Suppress exceptions when establishing an MP3 audio stream
 * 13871: Show layers in hidden pieces to owner correctly
 * 13865: Fix a bad reference manual link for GKCs
 * 13853: Upgraded maven-clean-plugin to 3.4.1
